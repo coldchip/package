@@ -24,7 +24,7 @@ class Compile {
 			
 			fwrite($output, $this->encodeMainHeader());
 			
-			$manifest = ($this->genManifest($input, $output, ""));
+			$this->genManifest($input, $output, "");
 			
 			fclose($output);
 			
@@ -60,7 +60,6 @@ class Compile {
 				}
 			}
 		}
-		return $data;
 	}
 	
 	public function decompressFrom($input) {
@@ -126,20 +125,41 @@ class Compile {
 		var_export($data, false);
 		echo("</pre>");
 	}
+	
+	
 }
 
-$cp = new Compile();
+function isCLI()
+{
+	return (php_sapi_name() === 'cli');
+}
+//if(strtolower(isCLI()) == "cli") {
 
-$cp->setOutput = $_SERVER["DOCUMENT_ROOT"] . "/compile/out.cfs";
+	$cp = new Compile();
 
-$cp->buildFrom($_SERVER["DOCUMENT_ROOT"] . "/login/");
+	if($argv[1] == "c") {
 
-// ********************************************************************
+	$cp->setOutput = $argv[3];
 
-$cp->setOutput = $_SERVER["DOCUMENT_ROOT"] . "/testfol";
+	$cp->buildFrom($argv[2]);
 
-$cp->decompressFrom($_SERVER["DOCUMENT_ROOT"] . "/compile/out.cfs");
+	} elseif($argv[1] == "d") {
 
+	// ********************************************************************
+
+	$cp->setOutput = $argv[3];
+
+	$cp->decompressFrom($argv[2]);
+
+	} else {
+		echo("\r\n\r\nUsage: \r\n");
+		echo("Compress: ~$ php this.php c <SOURCE_FOLDER> <COMPRESSED_DESTINATION>\r\n\r\n");
+		echo("Compress: ~$ php this.php d <COMPRESSED_DESTINATION> <DESTINATION_FOLDER>\r\n\r\n");
+	}
+
+//} else {
+	//die("Please run it in CLI Mode. ");
+//}
 
 
 ?>
