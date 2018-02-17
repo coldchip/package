@@ -1,12 +1,10 @@
 <?php
 
-// error_reporting(0);
-
 class Compile {
 	
 	public $setOutput = "";
 	
-	private $CHUNK_SIZE = 32768;
+	private $CHUNK_SIZE = 8192;
 	
 	private function encodeMainHeader() {
 		$data = "CHIPFS";
@@ -22,11 +20,19 @@ class Compile {
 	}
 	
 	private function encrypt($data) {
-		return gzdeflate($data, -1);
+		$data = str_split($data);
+		foreach($data as $dataVal) {
+			$result .= ($dataVal ^ decbin(255));
+		}
+		return $result;
 	}
 	
 	private function decrypt($data) {
-		return gzinflate($data);
+		$data = str_split($data);
+		foreach($data as $dataVal) {
+			$result .= ($dataVal ^ decbin(255));
+		}
+		return $result;
 	}
 	
 	public function buildFrom($input) {
