@@ -1,14 +1,17 @@
 <?php
 
+// error_reporting(0);
+
 class Compile {
 	
 	public $setOutput = "";
+	
+	private $CHUNK_SIZE = 32768;
 	
 	private function encodeMainHeader() {
 		$data = "CHIPFS";
 		$data .= hex2bin("0000");
 		$data .= hex2bin(hash("sha512", uniqid()));
-		//$data .= str_pad(time(), 16, hex2bin("00"));
 		return str_pad($data, 1024, hex2bin("00"));
 	}
 	
@@ -18,13 +21,20 @@ class Compile {
 		return array("signature" => $signature);
 	}
 	
+	private function encrypt($data) {
+		return gzdeflate($data, -1);
+	}
+	
+	private function decrypt($data) {
+		return gzinflate($data);
+	}
+	
 	public function buildFrom($input) {
 		if(is_dir($input)) {
-			$output = fopen($this->setOutput, "w+");
-			
+			$output = fopen($this->setOutput, "wb");
 			fwrite($output, $this->encodeMainHeader());
 			
-			$this->genManifest($input, $output, "");
+			$manifest = ($this->genManifest($input, $output, ""));
 			
 			fclose($output);
 			
@@ -37,49 +47,46 @@ class Compile {
 		$scanArray = scandir($inputDir, 0);
 		foreach($scanArray as $scanData) {
 			if($scanData !== "." && $scanData !== "..") {
-				$headerData = array();
 				if(is_dir($inputDir . "/" . $scanData)) {
-					$headerData["type"] = "folder";
-					$headerData["path"] = $this->pathSplit($currentFolder . "/" . $scanData);
-					fwrite($outputDest, $this->generateHeader($headerData, $headerData));
+					fwrite($outputDest, $this->generateHeader(array("type" => "folder", "path" => $this->pathSplit($currentFolder . "/" . $scanData))));
 					$this->genManifest($inputDir . "/" . $scanData, $outputDest, $currentFolder . "/" . $scanData);
 				} else {
 					$readFile = fopen($inputDir . "/" . $scanData, "r");
-					$headerData = array();
-					$headerData["type"] = "file";
-					$headerData["paddedSize"] = floor(filesize($inputDir . "/" . $scanData) / 8192) + 1;
-					$headerData["size"] = filesize($inputDir . "/" . $scanData);
-					$headerData["path"] = $this->pathSplit($currentFolder . "/" . $scanData);
-					$headerData["md5"] = md5_file($inputDir . "/" . $scanData);
-					fwrite($outputDest, $this->generateHeader($headerData));
-					while(!feof($readFile)) {	
-						error_log("Compressing: " . $scanData . " " . ftell($outputDest) . "/" . $headerData["size"]);
-						fwrite($outputDest, str_pad(fread($readFile, 8192), 8192, hex2bin("00")));
+					$fileSize = fileSize($inputDir . "/" . $scanData);
+					fwrite($outputDest, $this->generateHeader(array("type" => "file", "path" => $this->pathSplit($currentFolder . "/" . $scanData))));
+					while(!feof($readFile)) {
+						// error_log("Compressing... ");
+						$readData = $this->encrypt(fread($readFile, $this->CHUNK_SIZE));
+						$readDataSize = str_pad((strlen(bin2hex($readData)) / 2), 16, hex2bin("00"));
+						fwrite($outputDest, $readDataSize . $readData);
 					}
 					fclose($readFile);
 				}
 			}
 		}
+		return $data;
 	}
 	
 	public function decompressFrom($input) {
-		$readData = fopen($input, "r+");
+		$readData = fopen($input, "rb");
 		$header = $this->decodeMainHeader(fread($readData, 1024));
 		if($header["signature"] == "4348495046530000") {
-			while(!feof($readData))
-			{
-				$chunkData = fread($readData, 1024);
-				$headerData = json_decode($this->removePadding($chunkData), true);
+			while(ftell($readData) < fileSize($input)) {
+				$headerSize = $this->removePadding(fread($readData, 32));
+				$headerData = json_decode($this->removePadding(fread($readData, $headerSize)), true);
 				if($headerData["type"] == "folder") {
 					@mkdir($this->setOutput . "/" . $this->pathJoin($headerData["path"]));
 				}
 				if($headerData["type"] == "file") {
 					$writeOutput = fopen($this->setOutput . "/" . $this->pathJoin($headerData["path"]), "w+");
-					for($i = 0; $i < $headerData["paddedSize"]; $i++) {
-						error_log("Extracting: " . $this->pathJoin($headerData["path"]) . " " . ($i + 1) . "/" . $headerData["paddedSize"]);
-						fwrite($writeOutput, fread($readData, 8192));
+					while(true) {
+						$chunkSize = $this->removePadding(fread($readData, 16));
+						$decryptedData = $this->decrypt(fread($readData, $chunkSize));
+						fwrite($writeOutput, $decryptedData);
+						if((strlen(bin2hex($decryptedData)) / 2) < $this->CHUNK_SIZE) {
+							break;
+						}
 					}
-					ftruncate($writeOutput, $headerData["size"]);
 					fclose($writeOutput);
 				}
 			}
@@ -104,7 +111,8 @@ class Compile {
 	}
 	
 	private function generateHeader($headerData) {
-		return str_pad(json_encode($headerData), 1024, hex2bin("00"));
+		$headerData = json_encode($headerData);
+		return str_pad(strlen($headerData), 32, hex2bin("00")) . $headerData;
 	}
 	
 	private function pathJoin($path) {
@@ -125,41 +133,20 @@ class Compile {
 		var_export($data, false);
 		echo("</pre>");
 	}
-	
-	
 }
 
-function isCLI()
-{
-	return (php_sapi_name() === 'cli');
-}
-//if(strtolower(isCLI()) == "cli") {
+$cp = new Compile();
 
-	$cp = new Compile();
+$cp->setOutput = $_SERVER["DOCUMENT_ROOT"] . "/compile/out.cfs";
 
-	if($argv[1] == "c") {
+$cp->buildFrom($_SERVER["DOCUMENT_ROOT"] . "/login/");
 
-	$cp->setOutput = $argv[3];
+// ********************************************************************
 
-	$cp->buildFrom($argv[2]);
+$cp->setOutput = $_SERVER["DOCUMENT_ROOT"] . "/testfol";
 
-	} elseif($argv[1] == "d") {
+$cp->decompressFrom($_SERVER["DOCUMENT_ROOT"] . "/compile/out.cfs");
 
-	// ********************************************************************
-
-	$cp->setOutput = $argv[3];
-
-	$cp->decompressFrom($argv[2]);
-
-	} else {
-		echo("\r\n\r\nUsage: \r\n");
-		echo("Compress: ~$ php this.php c <SOURCE_FOLDER> <COMPRESSED_DESTINATION>\r\n\r\n");
-		echo("Compress: ~$ php this.php d <COMPRESSED_DESTINATION> <DESTINATION_FOLDER>\r\n\r\n");
-	}
-
-//} else {
-	//die("Please run it in CLI Mode. ");
-//}
 
 
 ?>
