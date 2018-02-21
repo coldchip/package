@@ -1,2 +1,2 @@
-# package
-A PHP File Archiver
+# PHP Based Archiver
+A Lightweight PHP File Archiver
